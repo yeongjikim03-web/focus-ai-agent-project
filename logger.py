@@ -3,81 +3,136 @@ import json
 from datetime import datetime
 from pynput import keyboard, mouse
 import pygetwindow as gw
+import psutil
+import win32gui
+import win32process
+from threading import Lock
 
 # ===== 전역 변수 =====
 keyboard_count = 0
 mouse_count = 0
-switch_count = 0
-
 last_input_time = time.time()
-current_window = None
 
-DURATION = 10  # 10초
+prev_title = None
+prev_app = None
+segment_start_time = time.time()
+
+lock = Lock()
 
 # ===== 키보드 이벤트 =====
 def on_key_press(key):
     global keyboard_count, last_input_time
-    keyboard_count += 1
-    last_input_time = time.time()
+    with lock:
+        keyboard_count += 1
+        last_input_time = time.time()
 
 # ===== 마우스 이벤트 =====
 def on_click(x, y, button, pressed):
     global mouse_count, last_input_time
     if pressed:
-        mouse_count += 1
-        last_input_time = time.time()
+        with lock:
+            mouse_count += 1
+            last_input_time = time.time()
+
+# ===== 앱 이름 =====
+def get_process_name():
+    try:
+        hwnd = win32gui.GetForegroundWindow()
+        if hwnd:
+            _, pid = win32process.GetWindowThreadProcessId(hwnd)
+            process = psutil.Process(pid)
+            return process.name()
+    except Exception as e:
+        print("get_process_name error:", e)
+    return "Unknown"
+
+# ===== 창 제목 =====
+def get_title_name():
+    try:
+        window = gw.getActiveWindow()
+        if window and window.title:
+            return window.title
+    except Exception as e:
+        print("get_title_name error:", e)
+    return None
+
+# ===== 초기 상태 =====
+initial_title = get_title_name()
+prev_title = initial_title if initial_title else "Unknown"
+prev_app = get_process_name()
+segment_start_time = time.time()
 
 # ===== 리스너 시작 =====
 keyboard.Listener(on_press=on_key_press).start()
 mouse.Listener(on_click=on_click).start()
 
+print("Logger started...")
+
 # ===== 메인 루프 =====
 while True:
+    time.sleep(0.2)
 
-    start_time = time.time()
-    switch_count = 0  # 매 구간 초기화
+    # ===== 현재 상태 =====
+    title = get_title_name()
+    current_title = title if title else prev_title
+    current_app = get_process_name()
+    now = time.time()
 
-    prev_window = None
+    # ===== 이벤트 판단 =====
+    is_app_changed = (current_app != prev_app)
+    is_title_changed = (current_title != prev_title)
 
-    # 10초 동안 계속 체크
-    while time.time() - start_time < DURATION:
-        try:
-            window = gw.getActiveWindow()
-            title = window.title if window else "Unknown"
-        except:
-            title = "Unknown"
+    
+    is_switch = is_app_changed
+ 
 
-        if prev_window is None:
-            prev_window = title
-        elif title != prev_window:
-            switch_count += 1
-            prev_window = title
+    is_periodic = (now - segment_start_time) >= 10
 
-        time.sleep(0.5)  # 0.5초마다 체크
+    # ===== 로그 생성 =====
+    if is_switch or is_periodic:
 
-    # 최종 창 정보
-    current_window = prev_window
+        duration = round(now - segment_start_time, 2)
 
-    # idle 계산
-    idle_time = int(time.time() - last_input_time)
-    is_idle = idle_time > 5
+        with lock:
+            k_count = keyboard_count
+            m_count = mouse_count
 
-    # 로그 생성
-    log = {
-        "user_id": 1,
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "duration": DURATION,
-        "app": current_window,
-        "title": current_window,
-        "keyboard_count": keyboard_count,
-        "mouse_count": mouse_count,
-        "switch_count": switch_count,
-        "idle_time": idle_time,
-        "is_idle": is_idle
-    }
+        # ===== idle 계산 =====
+        idle_time = int(now - max(last_input_time, segment_start_time))
+        is_idle = idle_time >= 5
 
-    print(json.dumps(log, indent=2, ensure_ascii=False))
+        log = {
+            "user_id": 1,
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
 
-    # 카운트 초기화
-    keyboard_count = 0
-    mouse_count = 0
+            "duration": duration,
+            "is_periodic": is_periodic,
+
+            "app": prev_app,
+            "title": prev_title,
+
+            "keyboard_count": k_count,
+            "mouse_count": m_count,
+
+            "idle_time": idle_time,
+            "is_idle": is_idle,
+
+            "is_switch": is_switch,
+
+            #나중에 필터링용
+            "long_idle": idle_time >= 30
+        }
+
+        print(json.dumps(log, indent=2, ensure_ascii=False))
+
+        # ===== 상태 업데이트 =====
+        prev_title = current_title
+        prev_app = current_app
+
+        # 구간 리셋
+        segment_start_time = now
+
+        # 카운트 초기화 (구간 기준)
+        with lock:
+            keyboard_count = 0
+            mouse_count = 0
