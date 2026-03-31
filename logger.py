@@ -17,6 +17,7 @@ prev_title = None
 prev_app = None
 segment_start_time = time.time()
 
+
 lock = Lock()
 
 # ===== 키보드 이벤트 =====
@@ -61,6 +62,8 @@ initial_title = get_title_name()
 prev_title = initial_title if initial_title else "Unknown"
 prev_app = get_process_name()
 segment_start_time = time.time()
+# 로그 출력용 
+start_time = datetime.now()
 
 # ===== 리스너 시작 =====
 keyboard.Listener(on_press=on_key_press).start()
@@ -92,6 +95,8 @@ while True:
     if is_switch or is_periodic:
 
         duration = round(now - segment_start_time, 2)
+        end_time = datetime.now()
+
 
         with lock:
             k_count = keyboard_count
@@ -103,7 +108,9 @@ while True:
 
         log = {
             "user_id": 1,
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+
+            "start_time": start_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "end_time" : end_time.strftime("%Y-%m-%d %H:%M:%S"),
 
             "duration": duration,
             "is_periodic": is_periodic,
@@ -131,6 +138,7 @@ while True:
 
         # 구간 리셋
         segment_start_time = now
+        start_time = end_time
 
         # 카운트 초기화 (구간 기준)
         with lock:
