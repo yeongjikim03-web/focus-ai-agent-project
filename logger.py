@@ -112,7 +112,7 @@ def get_process_name():
             return process.name()
     except Exception as e:
         print("get_process_name error:", e)
-    return "Unknown"
+    return None
 
 # ===== 창 제목 =====
 def get_title_name():
