@@ -2,7 +2,6 @@ import time
 import json
 from datetime import datetime
 from pynput import keyboard, mouse
-import pygetwindow as gw
 import psutil
 import win32gui
 import win32process
@@ -16,6 +15,7 @@ last_input_time = time.time()
 prev_title = None
 prev_app = None
 segment_start_time = time.time()
+
 
 lock = Lock()
 
@@ -34,33 +34,38 @@ def on_click(x, y, button, pressed):
             mouse_count += 1
             last_input_time = time.time()
 
-# ===== 앱 이름 =====
-def get_process_name():
+# ===== 앱 이름 & 창 제목  =====
+def get_window_info():
     try:
         hwnd = win32gui.GetForegroundWindow()
-        if hwnd:
+        if not hwnd:
+            return "Unknown", "Unknown"
+        
+        #창 제목
+        title = win32gui.GetWindowText(hwnd)
+        title = title if title else "Unknown"
+        
+        #프로세스 이름
+        try:
             _, pid = win32process.GetWindowThreadProcessId(hwnd)
             process = psutil.Process(pid)
-            return process.name()
+            app = process.name()
+        except:
+            app = "Unknown"
+        return app,title 
+        
     except Exception as e:
         print("get_process_name error:", e)
-    return "Unknown"
+    return "Unknown", "Unknown"
 
-# ===== 창 제목 =====
-def get_title_name():
-    try:
-        window = gw.getActiveWindow()
-        if window and window.title:
-            return window.title
-    except Exception as e:
-        print("get_title_name error:", e)
-    return None
 
 # ===== 초기 상태 =====
-initial_title = get_title_name()
+initial_app,initial_title = get_window_info()
 prev_title = initial_title if initial_title else "Unknown"
-prev_app = get_process_name()
+prev_app = initial_app if initial_app else "Unknown"
 segment_start_time = time.time()
+# 로그 출력용 
+start_time = datetime.now()
 
 # ===== 리스너 시작 =====
 keyboard.Listener(on_press=on_key_press).start()
@@ -70,12 +75,10 @@ print("Logger started...")
 
 # ===== 메인 루프 =====
 while True:
-    time.sleep(0.2)
+    time.sleep(0.5)
 
     # ===== 현재 상태 =====
-    title = get_title_name()
-    current_title = title if title else prev_title
-    current_app = get_process_name()
+    current_app, current_title = get_window_info()
     now = time.time()
 
     # ===== 이벤트 판단 =====
@@ -92,6 +95,7 @@ while True:
     if is_switch or is_periodic:
 
         duration = round(now - segment_start_time, 2)
+        end_time = datetime.now()
 
         with lock:
             k_count = keyboard_count
@@ -103,7 +107,9 @@ while True:
 
         log = {
             "user_id": 1,
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+
+            "start_time": start_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "end_time" : end_time.strftime("%Y-%m-%d %H:%M:%S"),
 
             "duration": duration,
             "is_periodic": is_periodic,
@@ -131,6 +137,7 @@ while True:
 
         # 구간 리셋
         segment_start_time = now
+        start_time = end_time
 
         # 카운트 초기화 (구간 기준)
         with lock:
